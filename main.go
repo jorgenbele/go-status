@@ -14,6 +14,9 @@ import (
 	"os/exec"
 	"syscall"
 	"time"
+
+	"log"
+	"github.com/fsnotify/fsnotify"
 )
 
 // Header is the json header used for i3-bar output
@@ -52,7 +55,6 @@ func (c *Color) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// AlignStr represents an alignment
 type AlignStr string
 
 const (
@@ -61,7 +63,6 @@ const (
 	AlignCenter AlignStr = "center"
 )
 
-// nenerator interface used for generating widget strings
 type Generator interface {
 	Generate(w *Widget, index int, ch chan WidgetElem, stop, done chan bool)
 }
@@ -83,7 +84,6 @@ type Element struct {
 	SeparatorBlockWidth int      `json:"separator_block_width,omitempty"`
 }
 
-// Widget contains all information about a widget
 type Widget struct {
 	Generator Generator
 	Error     error // Only modified by generator
@@ -97,43 +97,37 @@ type WidgetElem struct {
 // ColorFromHex converts a hex color string (#RRGGBB) to a Color struct
 func ColorFromHex(hex string) (c Color) {
 	if len(hex) != 7 {
-		panic(fmt.Sprintf("%s is not a valid hex color: invalid length %d", hex, len(hex)))
+		panic(fmt.Sprintf("%s is not a valid hex color: invalid length %d",
+			hex, len(hex)))
 	}
 
 	var rgb [3]uint8
 	for i := 0; i < cap(rgb); i++ {
 		c, err := strconv.ParseUint(hex[2*i+1:2*i+3], 16, 8)
-		rgb[i] = uint8(c)
 		if err != nil {
-			panic(fmt.Sprintf("%s is not a valid hex color: invalid hex digits", hex))
+			nerr := fmt.Errorf("%s is not a valid hex color: %v", hex, err)
+			panic(nerr)
 		}
+		rgb[i] = uint8(c)
 	}
 	return Color{rgb[0], rgb[1], rgb[2]}
 }
 
 const (
-	// PowerSupplyPath ...
 	PowerSupplyPath = "/sys/class/power_supply"
-	// BatPrefix is the prefix string which identifies
-	// power suppliers which are batteries
-	BatPrefix = "BAT"
+	BatPrefix       = "BAT"
 )
 
 // BatStatus is used to represent the battery status
 type BatStatus int
 
-// BatCharge represents the battery charge level as
-// a percentage of maximum charge.
+// BatCharge represents the charge level as a percentage of maximum charge.
 type BatCharge int
 
 const (
-	// BatUnknown is used when battery is unknown
 	BatUnknown BatStatus = iota
-	// BatDischarging is used when battery is discharging
 	BatDischarging
-	// BatCharging is used when battery is charging
 	BatCharging
-	// BatFull is used when battery is full
 	BatFull
 )
 
@@ -278,14 +272,19 @@ func cores() (n uint, err error) {
 		return
 	}
 
-	// parse a list of ranges: x-y,z-w,...
+	// Parse a list of ranges: x-y,z-w,...
 	s := strings.TrimSpace(string(data))
 	ranges := strings.Split(s, ",")
 	for _, r := range ranges {
 		rsplit := strings.Split(r, "-")
 		var left, right uint64
 
-		// assume length is 2
+		if len(rsplit) != 2 {
+			err = fmt.Errorf("invalid range: %v, expected 2 elements got %d",
+				rsplit, len(rsplit))
+			return
+		}
+
 		left, err = strconv.ParseUint(rsplit[0], 10, 32)
 		if err != nil {
 			return
@@ -325,32 +324,36 @@ func (c CPU) Color() Color {
 }
 
 func (c CPU) Symbol() string {
-	size := 6
+	size := 5
 	return HBar(int(c.Usage/float64(c.Cores)*float64(size)), size, '+', '-')
 }
 
-// Generate ...
 type CPUGenerator struct{}
 
-func (c CPUGenerator) Generate(w *Widget, index int, ch chan WidgetElem, stop, done chan bool) {
+func (c CPUGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
+	stop, done chan bool) {
 	gen := func() (e []Element, err error) {
 		c, err := CPUInfo()
 		if err != nil {
 			return
 		}
 		color := c.Color()
-		e = append(e, Element{Name: "CPU", Alignment: AlignRight, Color: &color, FullText: fmt.Sprintf("%d%% %s", c.UsagePerc(), c.Symbol())})
+		e = append(e, Element{Name: "CPU", Alignment: AlignRight, Color: &color,
+			FullText: fmt.Sprintf("%d%% %s", c.UsagePerc(), c.Symbol())})
 		return
 	}
-	generator(w, index, ch, stop, done, 3*time.Second, gen)
+	ticker := time.NewTicker(3 * time.Second)
+	generator(w, index, ch, stop, done, ticker.C, gen)
+	ticker.Stop()
 }
 
-// BatteryGenerator Used to implement Generate()
 type BatteryGenerator struct{}
 
-// Call gen() every tick (timeout). On error the Error field of the widget is set and
-// the goroutine signifies it is 'done' and returns.
-func generator(w *Widget, index int, ch chan WidgetElem, stop, done chan bool, timeout time.Duration, gen func() ([]Element, error)) {
+// Calls gen() every tick (timeout) until <-stop. On error the Error field
+// of the widget is set and the goroutine signifies it is 'done' and returns.
+func generator(w *Widget, index int, ch chan WidgetElem, stop, done chan bool,
+	tick <-chan time.Time, gen func() ([]Element, error)) {
+
 	prod, err := gen()
 	if err != nil {
 		w.Error = err
@@ -360,8 +363,6 @@ func generator(w *Widget, index int, ch chan WidgetElem, stop, done chan bool, t
 	ch <- WidgetElem{index, prod}
 
 	for {
-		tick := time.Tick(timeout)
-
 		select {
 		case <-stop:
 			done <- true
@@ -381,8 +382,61 @@ func generator(w *Widget, index int, ch chan WidgetElem, stop, done chan bool, t
 	}
 }
 
-// Generate ...
-func (b BatteryGenerator) Generate(w *Widget, index int, ch chan WidgetElem, stop, done chan bool) {
+type FsNotifyTicker struct {
+	C <-chan time.Time
+	stop chan bool
+}
+
+// Stop the FsNotifyTicker
+func (t *FsNotifyTicker) Stop() {
+	t.stop <- true
+}
+func NewFsNotifyTicker(paths []string) (ticker FsNotifyTicker) {
+	// File watcher
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	c := make(chan time.Time)
+	ticker.C = c
+	ticker.stop = make(chan bool)
+
+	go func() {
+		defer watcher.Close()
+		for {
+			select {
+			case <-ticker.stop:
+				log.Println("Stopping FsNotifyTick on paths: %v", paths)
+				return
+
+			case event, ok := <-watcher.Events:
+				if !ok {
+					return
+				}
+				log.Println("FsNotifyTick event:", event)
+				c <- time.Now()
+			case err, ok := <-watcher.Errors:
+				if !ok {
+					return
+				}
+				log.Println("error:", err)
+			}
+		}
+	}()
+
+	for _, p := range paths {
+		err = watcher.Add(p)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+	return
+}
+
+func (b BatteryGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
+	stop, done chan bool) {
+
 	gen := func() (e []Element, err error) {
 		bats, err := BatteryInfo()
 		if err != nil {
@@ -390,44 +444,60 @@ func (b BatteryGenerator) Generate(w *Widget, index int, ch chan WidgetElem, sto
 		}
 		for _, b := range bats {
 			color := b.Color()
-			e = append(e, Element{Name: "Battery", Instance: b.Path, Alignment: AlignRight, Color: &color, FullText: fmt.Sprintf("%d%% %s", b.Charge, b.Symbol())})
+			e = append(e, Element{Name: "Battery", Instance: b.Path,
+				Alignment: AlignRight, Color: &color,
+				FullText: fmt.Sprintf("%d%% %s", b.Charge, b.Symbol())})
 		}
 		return
 	}
-	generator(w, index, ch, stop, done, 2*time.Second, gen)
+
+	//tick, fwdone := FileWatchTick([]string{PowerSupplyPath})
+	//generator(w, index, ch, stop, done, tick, gen)
+	//fwdone <- true
+	ticker := time.NewTicker(time.Second*10)
+	generator(w, index, ch, stop, done, ticker.C, gen)
+	ticker.Stop()
 	return
 }
 
 type ClockGenerator struct{}
 
-func (c ClockGenerator) Generate(w *Widget, index int, ch chan WidgetElem, stop, done chan bool) {
+func (c ClockGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
+	stop, done chan bool) {
 	gen := func() (e []Element, err error) {
 		t := time.Now()
 		fmt := t.Format("Mon Jan 2 15:04:05")
-
 		e = append(e, Element{Name: "Clock", Alignment: AlignRight, FullText: fmt})
 		return
 	}
-	generator(w, index, ch, stop, done, time.Second, gen)
+	ticker := time.NewTicker(time.Second)
+	generator(w, index, ch, stop, done, ticker.C, gen)
+	ticker.Stop()
 }
 
 type CommandGenerator struct {
-	Tick       time.Duration
+	C          <-chan time.Time
 	Instance   string
 	CmdCreator func() *exec.Cmd
 	IsJSON     bool
+	IsArray    bool // used with IsJSON
+
 	TrimSpace  bool
 }
 
 // Generate ...
-func (c CommandGenerator) Generate(w *Widget, index int, ch chan WidgetElem, stop, done chan bool) {
+func (c CommandGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
+	stop, done chan bool) {
 	gen := func() (e []Element, err error) {
 		cmd := c.CmdCreator()
 		outbytes, err := cmd.Output()
 		if err != nil {
 			w.Error = err
-			fmt.Fprintf(os.Stderr, "Command failed for widget #%d: %s\n", index, err)
-			e = append(e, Element{Name: "Command", Instance: c.Instance, Alignment: AlignRight, FullText: fmt.Sprintf("ERROR: %s", err)})
+
+			log.Printf("Command failed for widget #%d: %s\n", index, err)
+
+			e = append(e, Element{Name: "Command", Instance: c.Instance,
+				Alignment: AlignRight, FullText: fmt.Sprintf("ERROR: %s", err)})
 			return
 		}
 
@@ -438,20 +508,48 @@ func (c CommandGenerator) Generate(w *Widget, index int, ch chan WidgetElem, sto
 			} else {
 				out = string(outbytes)
 			}
-			e = append(e, Element{Name: "Command", Instance: c.Instance, Alignment: AlignRight, FullText: string(out)})
-		} else {
+			e = append(e,
+				Element{Name: "Command",
+					Instance:  c.Instance,
+					Alignment: AlignRight,
+					FullText:  string(out)})
+		} else if !c.IsArray {
 			var elem Element
 			err = json.Unmarshal(outbytes, &elem)
 			if err != nil {
 				w.Error = err
-				e = append(e, Element{Name: "Command", Instance: c.Instance, Alignment: AlignRight, FullText: fmt.Sprintf("ERROR: %s", err)})
+				red := ColorFromHex("#FF0000")
+				e = append(e,
+					Element{Name: "Command",
+						Instance:  c.Instance,
+						Alignment: AlignRight,
+						Color:     &red,
+						FullText:  fmt.Sprintf("ERROR: %s", err)})
 				return
 			}
 			e = append(e, elem)
+		} else {
+			var elems []Element
+			err = json.Unmarshal(outbytes, &elems)
+			if err != nil {
+				w.Error = err
+				red := ColorFromHex("#FF0000")
+				e = append(e,
+					Element{Name: "Command",
+						Instance:  c.Instance,
+						Alignment: AlignRight,
+						Color:     &red,
+						FullText:  fmt.Sprintf("ERROR: %s", err)})
+				return
+			}
+
+			for _, elem := range elems {
+				e = append(e, elem)
+			}
 		}
 		return
 	}
-	generator(w, index, ch, stop, done, c.Tick, gen)
+	generator(w, index, ch, stop, done, c.C, gen)
 }
 
 func main() {
@@ -472,14 +570,16 @@ func main() {
 	out.Write(header)
 	out.Write([]byte{'\n', '[', '\n', '[', ']', '\n'})
 
+	// TODO: Fix tickers.
 	widgets := []Widget{
 		//Widget{Generator: CommandGenerator{Instance: "mpc", Tick: time.Second * 10, IsJSON: true, CmdCreator: func() *exec.Cmd { return exec.Command("mpc", "-h", "localhost", "--format", "%title% - %album%,%artist", "current") }}},
-		Widget{Generator: CommandGenerator{Instance: "wireless", Tick: time.Second * 10, IsJSON: true, CmdCreator: func() *exec.Cmd { return exec.Command("wireless_con") }}},
-		Widget{Generator: CommandGenerator{Instance: "mullvadvpn", Tick: time.Second * 10, IsJSON: true, CmdCreator: func() *exec.Cmd { return exec.Command("mullvad_jsonblock") }}},
+		Widget{Generator: CommandGenerator{Instance: "wireless", C: time.Tick(time.Second * 10), IsJSON: true, IsArray: true, CmdCreator: func() *exec.Cmd { return exec.Command("nmcli_json") }}},
+		Widget{Generator: CommandGenerator{Instance: "mullvadvpn", C: time.Tick(time.Second * 10), IsJSON: true, CmdCreator: func() *exec.Cmd { return exec.Command("mullvad_jsonblock") }}},
 		Widget{Generator: BatteryGenerator{}},
 		Widget{Generator: CPUGenerator{}},
 		Widget{Generator: ClockGenerator{}},
-		Widget{Generator: CommandGenerator{Instance: "sleeptest", Tick: time.Second, CmdCreator: func() *exec.Cmd { return exec.Command("sleeptest") }}},
+		Widget{Generator: CommandGenerator{Instance: "File watcher", C: NewFsNotifyTicker([]string{"/home/jbr/.not_kv"}).C, CmdCreator: func() *exec.Cmd { return exec.Command("notification") }}},
+		Widget{Generator: CommandGenerator{Instance: "sleeptest", C: time.Tick(time.Second), CmdCreator: func() *exec.Cmd { return exec.Command("sleeptest") }}},
 		//Widget{Generator: CommandGenerator{Instance: "uptime", Tick: time.Second * 10, TrimSpace: true, CmdCreator: func() *exec.Cmd { return exec.Command("uptime", "-p") }}},
 	}
 	cache := make([][]Element, len(widgets))
@@ -518,25 +618,24 @@ func main() {
 	for running {
 		select {
 		case we := <-wechan:
-			//fmt.Fprintln(os.Stderr, "Recieved on wechan!", we, we.Index)
 			cache[we.Index] = we.e
 			update()
 			break
 
 		case <-sigtermchan:
-			fmt.Fprintln(os.Stderr, "Catched SIGTERM, stopping!")
+			log.Println("Catched SIGTERM, stopping!")
 			running = false
 			break
 		}
 	}
 
 	// Stop widget generators.
-	fmt.Fprintln(os.Stderr, "=== Sending stop")
+	log.Println("=== Sending stop")
 	for i := 0; i < len(widgets); i++ {
 		stop <- true
 	}
 
-	fmt.Fprintln(os.Stderr, "=== Getting remaining")
+	log.Println("=== Getting remaining")
 	remaining := true
 	for remaining {
 		select {
@@ -548,7 +647,7 @@ func main() {
 	}
 
 	// Wait for all goroutines to complete.
-	fmt.Fprintln(os.Stderr, "=== Waiting for done messages")
+	log.Println("=== Waiting for done messages")
 	for i := 0; i < len(widgets); i++ {
 		select {
 		case <-done:
@@ -556,5 +655,5 @@ func main() {
 		}
 	}
 
-	fmt.Fprintln(os.Stderr, "Stopped all goroutines. Shutting down.")
+	log.Println("Stopped all goroutines. Shutting down.")
 }
