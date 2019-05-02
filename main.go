@@ -333,10 +333,10 @@ func (c CPU) Symbol() string {
 type CPUGenerator struct{}
 
 func (c CPUGenerator) Generate(w *Widget, index int, ch chan WidgetElem, stop, done chan bool) {
-	gen := func() (e []Element) {
+	gen := func() (e []Element, err error) {
 		c, err := CPUInfo()
 		if err != nil {
-			panic(err)
+			return
 		}
 		color := c.Color()
 		e = append(e, Element{Name: "CPU", Alignment: AlignRight, Color: &color, FullText: fmt.Sprintf("%d%% %s", c.UsagePerc(), c.Symbol())})
@@ -348,8 +348,16 @@ func (c CPUGenerator) Generate(w *Widget, index int, ch chan WidgetElem, stop, d
 // BatteryGenerator Used to implement Generate()
 type BatteryGenerator struct{}
 
-func generator(w *Widget, index int, ch chan WidgetElem, stop, done chan bool, timeout time.Duration, gen func() []Element) {
-	ch <- WidgetElem{index, gen()}
+// Call gen() every tick (timeout). On error the Error field of the widget is set and
+// the goroutine signifies it is 'done' and returns.
+func generator(w *Widget, index int, ch chan WidgetElem, stop, done chan bool, timeout time.Duration, gen func() ([]Element, error)) {
+	prod, err := gen()
+	if err != nil {
+		w.Error = err
+		done <- true
+		return
+	}
+	ch <- WidgetElem{index, prod}
 
 	for {
 		tick := time.Tick(timeout)
@@ -363,16 +371,22 @@ func generator(w *Widget, index int, ch chan WidgetElem, stop, done chan bool, t
 			break
 		}
 
-		ch <- WidgetElem{index, gen()}
+		prod, err := gen()
+		if err != nil {
+			w.Error = err
+			done <- true
+			return
+		}
+		ch <- WidgetElem{index, prod}
 	}
 }
 
 // Generate ...
 func (b BatteryGenerator) Generate(w *Widget, index int, ch chan WidgetElem, stop, done chan bool) {
-	gen := func() (e []Element) {
+	gen := func() (e []Element, err error) {
 		bats, err := BatteryInfo()
 		if err != nil {
-			panic(err)
+			return
 		}
 		for _, b := range bats {
 			color := b.Color()
@@ -387,7 +401,7 @@ func (b BatteryGenerator) Generate(w *Widget, index int, ch chan WidgetElem, sto
 type ClockGenerator struct{}
 
 func (c ClockGenerator) Generate(w *Widget, index int, ch chan WidgetElem, stop, done chan bool) {
-	gen := func() (e []Element) {
+	gen := func() (e []Element, err error) {
 		t := time.Now()
 		fmt := t.Format("Mon Jan 2 15:04:05")
 
@@ -407,11 +421,12 @@ type CommandGenerator struct {
 
 // Generate ...
 func (c CommandGenerator) Generate(w *Widget, index int, ch chan WidgetElem, stop, done chan bool) {
-	gen := func() (e []Element) {
+	gen := func() (e []Element, err error) {
 		cmd := c.CmdCreator()
 		outbytes, err := cmd.Output()
 		if err != nil {
 			w.Error = err
+			fmt.Fprintf(os.Stderr, "Command failed for widget #%d: %s\n", index, err)
 			e = append(e, Element{Name: "Command", Instance: c.Instance, Alignment: AlignRight, FullText: fmt.Sprintf("ERROR: %s", err)})
 			return
 		}
@@ -430,10 +445,10 @@ func (c CommandGenerator) Generate(w *Widget, index int, ch chan WidgetElem, sto
 			if err != nil {
 				w.Error = err
 				e = append(e, Element{Name: "Command", Instance: c.Instance, Alignment: AlignRight, FullText: fmt.Sprintf("ERROR: %s", err)})
+				return
 			}
 			e = append(e, elem)
 		}
-
 		return
 	}
 	generator(w, index, ch, stop, done, c.Tick, gen)
@@ -464,6 +479,7 @@ func main() {
 		Widget{Generator: BatteryGenerator{}},
 		Widget{Generator: CPUGenerator{}},
 		Widget{Generator: ClockGenerator{}},
+		Widget{Generator: CommandGenerator{Instance: "sleeptest", Tick: time.Second, CmdCreator: func() *exec.Cmd { return exec.Command("sleeptest") }}},
 		//Widget{Generator: CommandGenerator{Instance: "uptime", Tick: time.Second * 10, TrimSpace: true, CmdCreator: func() *exec.Cmd { return exec.Command("uptime", "-p") }}},
 	}
 	cache := make([][]Element, len(widgets))
@@ -473,20 +489,16 @@ func main() {
 
 		for i, _ := range widgets {
 			elems := cache[i]
-
 			for _, e := range elems {
 				v = append(v, e)
 			}
 		}
-
-		//fmt.Fprintf(os.Stderr, "V: %v\n", v)
 
 		data, err := json.Marshal(v)
 		if err != nil {
 			panic(err)
 		}
 		out.Write([]byte{','})
-		//fmt.Fprintf(os.Stderr, "Data: %s\n", string(data))
 		out.Write(data)
 		out.Flush()
 		out.Write([]byte{'\n'})
@@ -519,10 +531,12 @@ func main() {
 	}
 
 	// Stop widget generators.
+	fmt.Fprintln(os.Stderr, "=== Sending stop")
 	for i := 0; i < len(widgets); i++ {
 		stop <- true
 	}
 
+	fmt.Fprintln(os.Stderr, "=== Getting remaining")
 	remaining := true
 	for remaining {
 		select {
@@ -534,6 +548,7 @@ func main() {
 	}
 
 	// Wait for all goroutines to complete.
+	fmt.Fprintln(os.Stderr, "=== Waiting for done messages")
 	for i := 0; i < len(widgets); i++ {
 		select {
 		case <-done:
@@ -541,5 +556,5 @@ func main() {
 		}
 	}
 
-	//fmt.Fprintln(os.Stderr, "== Shutting down.")
+	fmt.Fprintln(os.Stderr, "Stopped all goroutines. Shutting down.")
 }
