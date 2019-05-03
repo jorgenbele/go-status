@@ -1,3 +1,4 @@
+// TODO: Code cleanup
 package main
 
 import (
@@ -666,7 +667,9 @@ func main() {
 		Widget{Generator: CPUGenerator{}},
 		Widget{Generator: ClockGenerator{}},
 		Widget{Generator: CommandGenerator{Instance: "File watcher", C: NewFsNotifyTicker([]string{"/home/jbr/.not_kv"}).C, CmdCreator: func() *exec.Cmd { return exec.Command("notification") }}},
+
 		Widget{Generator: CommandGenerator{Instance: "sleeptest", C: time.Tick(time.Second), CmdCreator: func() *exec.Cmd { return exec.Command("sleeptest") }}},
+		//Widget{Generator: CommandGenerator{Instance: "errortest", C: time.Tick(time.Second), CmdCreator: func() *exec.Cmd { return exec.Command("errortest") }}},
 		//Widget{Generator: CommandGenerator{Instance: "uptime", Tick: time.Second * 10, TrimSpace: true, CmdCreator: func() *exec.Cmd { return exec.Command("uptime", "-p") }}},
 	}
 	cache := make([][]Element, len(widgets))
