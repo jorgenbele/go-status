@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"os/exec"
 	"syscall"
+	"io"
 	"time"
 
 	"log"
@@ -368,7 +369,11 @@ func generator(w *Widget, index int, ch chan WidgetElem, stop, done chan bool,
 			done <- true
 			return
 
-		case <-tick:
+		case _, ok := <-tick:
+			if !ok {
+				done <- true
+				return
+			}
 			break
 		}
 
@@ -552,6 +557,77 @@ func (c CommandGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
 	generator(w, index, ch, stop, done, c.C, gen)
 }
 
+// NOTE: Only JSON
+type StreamingCommandGenerator struct {
+	Instance   string
+	Restart    bool
+	CmdCreator func() *exec.Cmd
+}
+
+// Reads a stream where each line is a JSON encoded Element.
+func (c StreamingCommandGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
+	stop, done chan bool) {
+
+	fail := func(err error) {
+		w.Error = err
+		log.Printf("Command failed for widget #%d: %s\n", index, err)
+		return
+	}
+
+	start := func() (cmd *exec.Cmd, stdout io.ReadCloser, err error) {
+		cmd = c.CmdCreator()
+		stdout, err = cmd.StdoutPipe()
+		if err != nil {
+			return
+		}
+		err = cmd.Start()
+		return
+	}
+
+	_, stdout, err := start()
+	if err != nil {
+		fail(err)
+		return
+	}
+
+	// Channel for lines read from stdin
+	stdoutch := make(chan []byte, 1)
+	tickerch := make(chan time.Time, 1)
+
+	go func(ch chan []byte, ticker chan time.Time, f io.ReadCloser) {
+		r := bufio.NewReader(f)
+
+		for {
+			bytes, err := r.ReadBytes('\n')
+			if err != nil {
+				fail(err)
+				close(ticker)
+				close(ch)
+				return
+			}
+			ticker <- time.Now()
+			ch <- bytes
+		}
+		close(ch)
+		close(ticker)
+	}(stdoutch, tickerch, stdout)
+
+	gen := func() (e []Element, err error) {
+		var elem Element
+		err = json.Unmarshal(<-stdoutch, &elem)
+		if err != nil {
+			fail(err)
+			return
+		}
+		e = append(e, elem)
+		return
+	}
+	generator(w, index, ch, stop, done, tickerch, gen)
+
+	//cmd.Wait()
+}
+
+
 func main() {
 	// TODO support SIGSTOP/SIGCONT
 	// Catch SIGTERM
@@ -573,7 +649,10 @@ func main() {
 	// TODO: Fix tickers.
 	widgets := []Widget{
 		//Widget{Generator: CommandGenerator{Instance: "mpc", Tick: time.Second * 10, IsJSON: true, CmdCreator: func() *exec.Cmd { return exec.Command("mpc", "-h", "localhost", "--format", "%title% - %album%,%artist", "current") }}},
-		Widget{Generator: CommandGenerator{Instance: "wireless", C: time.Tick(time.Second * 10), IsJSON: true, IsArray: true, CmdCreator: func() *exec.Cmd { return exec.Command("nmcli_json") }}},
+		//Widget{Generator: CommandGenerator{Instance: "wireless", C: time.Tick(time.Second * 10), IsJSON: true, IsArray: true, CmdCreator: func() *exec.Cmd { return exec.Command("nmcli_json") }}},
+		Widget{Generator: StreamingCommandGenerator{Instance: "nmcliwatcher", CmdCreator: func() *exec.Cmd { return exec.Command("nm_watcher", "wlp3s0") }}},
+		//Widget{Generator: StreamingCommandGenerator{Instance: "nmcliwatcher", CmdCreator: func() *exec.Cmd { return exec.Command("nm_watcher", "tun0") }}},
+		Widget{Generator: StreamingCommandGenerator{Instance: "mullvadwatcher", CmdCreator: func() *exec.Cmd { return exec.Command("mullvad_watcher") }}},
 		Widget{Generator: CommandGenerator{Instance: "mullvadvpn", C: time.Tick(time.Second * 10), IsJSON: true, CmdCreator: func() *exec.Cmd { return exec.Command("mullvad_jsonblock") }}},
 		Widget{Generator: BatteryGenerator{}},
 		Widget{Generator: CPUGenerator{}},
