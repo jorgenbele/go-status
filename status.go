@@ -117,4 +117,33 @@ func (s *Status) Start() {
 		}
 	}
 
+	// Stop widget generators.
+	log.Println("Sending stop to all widgets.")
+	for i := 0; i < len(s.widgets); i++ {
+		ctx.stop <- true
+	}
+
+	// Take all remaining products and errors.
+	log.Println("Consuming remaining products (errors and widgets).")
+	remaining := true
+	for remaining {
+		select {
+		case <-ctx.ch:
+			break
+		case <-ctx.errorch:
+			break
+		default:
+			remaining = false
+		}
+	}
+
+	// Wait for all widgets to send done.
+	log.Println("Waiting for done messages.")
+	for i := 0; i < len(s.widgets); i++ {
+		select {
+		case <-ctx.done:
+			break
+		}
+	}
+	log.Println("Stopped all goroutines. Shutting down.")
 }

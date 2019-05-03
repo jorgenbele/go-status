@@ -31,6 +31,6 @@ func NewGeneratorCtx(widgetcount int) GeneratorCtx {
 		ch:      make(chan WidgetElem),
 		stop:    make(chan bool, widgetcount),
 		done:    make(chan bool),
-		errorch: make(chan WidgetError),
+		errorch: make(chan WidgetError, widgetcount),
 	}
 }
