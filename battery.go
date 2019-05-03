@@ -26,26 +26,44 @@ const (
 	BatFull
 )
 
-// batBar is initialized in init()
-var batBar []string
+var batBar [5]string
+var batColors [5]Color
+var batPrefix map[BatStatus]string
+var batStatus map[string]BatStatus
 
 func init() {
-	batBar = []string{
+	batBar = [...]string{
 		"",
 		"",
 		"",
 		"",
-		""}
-}
+		"",
+	}
 
-func batteryStatus(name string) (status BatStatus, charge BatCharge, err error) {
-	statusMap := map[string]BatStatus{
+	batColors = [...]Color{
+		ColorFromHex("#B82E34"), // very low
+		ColorFromHex("#B82E34"), // low
+		ColorFromHex("#8A8B8C"), // medium
+		ColorFromHex("#8A8B8C"), // near full
+		ColorFromHex("#8A8B8C"), // full
+	}
+
+	batPrefix = map[BatStatus]string{
+		BatUnknown:     "",
+		BatCharging:    " ",
+		BatDischarging: "",
+		BatFull:        "",
+	}
+
+	batStatus = map[string]BatStatus{
 		"Unknown\n":     BatUnknown,
 		"Charging\n":    BatCharging,
 		"Discharging\n": BatDischarging,
 		"Full\n":        BatFull,
 	}
+}
 
+func batteryStatus(name string) (status BatStatus, charge BatCharge, err error) {
 	batPath := fmt.Sprintf("%s/%s/", PowerSupplyPath, name)
 
 	data, err := ioutil.ReadFile(batPath + "capacity")
@@ -62,7 +80,7 @@ func batteryStatus(name string) (status BatStatus, charge BatCharge, err error) 
 	if err != nil {
 		return
 	}
-	status, ok := statusMap[string(data)]
+	status, ok := batStatus[string(data)]
 	if !ok {
 		err = fmt.Errorf("Unknown battery status: %s", string(data))
 		return
@@ -77,33 +95,15 @@ type Battery struct {
 	Charge BatCharge
 }
 
-func GetColors() []Color {
-	colors := []Color{
-		ColorFromHex("#B82E34"), // very low
-		ColorFromHex("#B82E34"), // low
-		ColorFromHex("#8A8B8C"), // medium
-		ColorFromHex("#8A8B8C"), // near full
-		ColorFromHex("#8A8B8C"), // full
-	}
-	return colors
-}
-
 // Color returns a suitable color for the given battery capacity/state.
 func (b Battery) Color() Color {
-	colors := GetColors()
-	return colors[int(float64(b.Charge)/100.0*float64(len(colors)-1))]
+	return batColors[int(float64(b.Charge)/100.0*float64(len(batColors)-1))]
 }
 
 // Symbol returns a suitable symbol for the given battery capacity/state.
 func (b Battery) Symbol() string {
-	prefix := map[BatStatus]string{
-		BatUnknown:     "",
-		BatCharging:    " ",
-		BatDischarging: "",
-		BatFull:        "",
-	}
 	symb := batBar[int(float64(b.Charge)/100.0*float64(len(batBar)-1))]
-	return fmt.Sprintf("%s%s", prefix[b.Status], symb)
+	return fmt.Sprintf("%s%s", batPrefix[b.Status], symb)
 }
 
 // BatteryInfo returns a slice of batteries with name, status and charge.
