@@ -84,11 +84,6 @@ func GetColors() []Color {
 		ColorFromHex("#8A8B8C"), // medium
 		ColorFromHex("#8A8B8C"), // near full
 		ColorFromHex("#8A8B8C"), // full
-		//ColorFromHex("#FF0000"), // very low
-		//ColorFromHex("#AA0000"), // low
-		//ColorFromHex("#FFFFFF"), // medium
-		//ColorFromHex("#00AA00"), // near full
-		//ColorFromHex("#00FF00"), // full
 	}
 	return colors
 }
@@ -136,7 +131,10 @@ func BatteryInfo() ([]Battery, error) {
 	return bats, nil
 }
 
-type BatteryGenerator struct{}
+type BatteryGenerator struct {
+	Alignment AlignStr
+	Every     time.Duration
+}
 
 func (b BatteryGenerator) Generate(w *Widget, index int, ctx *GeneratorCtx) {
 
@@ -145,16 +143,16 @@ func (b BatteryGenerator) Generate(w *Widget, index int, ctx *GeneratorCtx) {
 		if err != nil {
 			return
 		}
-		for _, b := range bats {
-			color := b.Color()
-			e = append(e, Element{Name: "Battery", Instance: b.Path,
-				Alignment: AlignRight, Color: &color,
-				FullText: fmt.Sprintf("%d%% %s", b.Charge, b.Symbol())})
+		for _, bat := range bats {
+			color := bat.Color()
+			e = append(e, Element{Name: "Battery", Instance: bat.Path,
+				Alignment: b.Alignment, Color: &color,
+				FullText: fmt.Sprintf("%d%% %s", bat.Charge, bat.Symbol())})
 		}
 		return
 	}
 
-	ticker := time.NewTicker(time.Second * 10)
+	ticker := time.NewTicker(b.Every)
 	generator(w, index, ctx, ticker.C, gen)
 	ticker.Stop()
 	return

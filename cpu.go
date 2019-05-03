@@ -85,20 +85,23 @@ func (c CPU) Symbol() string {
 	return HBar(int(c.Usage/float64(c.Cores)*float64(size)), size, '+', '-')
 }
 
-type CPUGenerator struct{}
+type CPUGenerator struct {
+	Alignment AlignStr
+	Every     time.Duration
+}
 
 func (c CPUGenerator) Generate(w *Widget, index int, ctx *GeneratorCtx) {
 	gen := func() (e []Element, err error) {
-		c, err := CPUInfo()
+		cpu, err := CPUInfo()
 		if err != nil {
 			return
 		}
-		color := c.Color()
-		e = append(e, Element{Name: "CPU", Alignment: AlignRight, Color: &color,
-			FullText: fmt.Sprintf("%d%% %s", c.UsagePerc(), c.Symbol())})
+		color := cpu.Color()
+		e = append(e, Element{Name: "CPU", Alignment: c.Alignment, Color: &color,
+			FullText: fmt.Sprintf("%d%% %s", cpu.UsagePerc(), cpu.Symbol())})
 		return
 	}
-	ticker := time.NewTicker(3 * time.Second)
+	ticker := time.NewTicker(c.Every)
 	generator(w, index, ctx, ticker.C, gen)
 	ticker.Stop()
 }

@@ -10,17 +10,41 @@ import (
 
 func main() {
 	widgets := []Widget{
-		Widget{Generator: StreamingCommandGenerator{Instance: "nmcliwatcher", CmdCreator: func() *exec.Cmd { return exec.Command("nm_watcher", "wlp3s0") }}},
-		Widget{Generator: StreamingCommandGenerator{Instance: "mullvadwatcher", CmdCreator: func() *exec.Cmd { return exec.Command("mullvad_watcher") }}},
-		Widget{Generator: CommandGenerator{Instance: "mullvadvpn", C: time.Tick(time.Second * 10), IsJSON: true, CmdCreator: func() *exec.Cmd { return exec.Command("mullvad_jsonblock") }}},
-		Widget{Generator: BatteryGenerator{}},
-		Widget{Generator: CPUGenerator{}},
-		Widget{Generator: ClockGenerator{}},
-		Widget{Generator: CommandGenerator{Instance: "File watcher", C: NewFsNotifyTicker([]string{"/home/jbr/.not_kv"}).C, CmdCreator: func() *exec.Cmd { return exec.Command("notification") }}},
+		Widget{Generator: StreamingCommandGenerator{
+			Instance: "nmcliwatcher",
+			CmdCreator: func() *exec.Cmd {
+				return exec.Command("nm_watcher", "wlp3s0")
+			}}},
 
-		//Widget{Generator: CommandGenerator{Instance: "sleeptest", C: time.Tick(time.Second), CmdCreator: func() *exec.Cmd { return exec.Command("sleeptest") }}},
-		//Widget{Generator: CommandGenerator{Instance: "errortest", C: time.Tick(time.Second), CmdCreator: func() *exec.Cmd { return exec.Command("errortest") }}},
-		//Widget{Generator: CommandGenerator{Instance: "uptime", Tick: time.Second * 10, TrimSpace: true, CmdCreator: func() *exec.Cmd { return exec.Command("uptime", "-p") }}},
+		Widget{Generator: StreamingCommandGenerator{
+			Instance: "mullvadwatcher",
+			CmdCreator: func() *exec.Cmd {
+				return exec.Command("mullvad_watcher")
+			}}},
+
+		Widget{
+			Generator: CommandGenerator{Instance: "mullvadvpn",
+				C:      time.Tick(time.Second * 10),
+				IsJSON: true,
+				CmdCreator: func() *exec.Cmd {
+					return exec.Command("mullvad_jsonblock")
+				}}},
+
+		Widget{Generator: BatteryGenerator{
+			Alignment: AlignRight,
+			Every:     time.Second * 10,
+		}},
+
+		Widget{Generator: CPUGenerator{
+			Alignment: AlignRight,
+			Every:     time.Second * 10,
+		}},
+
+		Widget{Generator: ClockGenerator{
+			Format:    "Mon Jan 2 15:04:05",
+			Alignment: AlignRight,
+			Every:     time.Second,
+		}},
 	}
 
 	out := bufio.NewWriter(os.Stdout)

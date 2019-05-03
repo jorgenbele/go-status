@@ -31,6 +31,14 @@ type Element struct {
 	SeparatorBlockWidth int      `json:"separator_block_width,omitempty"`
 }
 
+type AlignStr string
+
+const (
+	AlignLeft   AlignStr = "left"
+	AlignRight  AlignStr = "right"
+	AlignCenter AlignStr = "center"
+)
+
 type Status struct {
 	started bool
 	widgets []Widget
