@@ -11,13 +11,13 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"io"
 	"os/exec"
 	"syscall"
-	"io"
 	"time"
 
-	"log"
 	"github.com/fsnotify/fsnotify"
+	"log"
 )
 
 // Header is the json header used for i3-bar output
@@ -65,7 +65,7 @@ const (
 )
 
 type Generator interface {
-	Generate(w *Widget, index int, ch chan WidgetElem, stop, done chan bool)
+	Generate(w *Widget, index int, ch chan WidgetElem, stop, done chan bool, errorch chan WidgetError)
 }
 
 // Element contains the fields returned from the widget generator
@@ -87,12 +87,18 @@ type Element struct {
 
 type Widget struct {
 	Generator Generator
-	Error     error // Only modified by generator
+	Error     error       // Only modified by generator
+	//ErrorMsg  *WidgetElem // Element to be displayed when Error != nil.
 }
 
 type WidgetElem struct {
 	Index int
 	e     []Element
+}
+
+type WidgetError struct {
+	Index int
+	Error error
 }
 
 // ColorFromHex converts a hex color string (#RRGGBB) to a Color struct
@@ -178,6 +184,11 @@ func GetColors() []Color {
 		ColorFromHex("#8A8B8C"), // medium
 		ColorFromHex("#8A8B8C"), // near full
 		ColorFromHex("#8A8B8C"), // full
+		//ColorFromHex("#FF0000"), // very low
+		//ColorFromHex("#AA0000"), // low
+		//ColorFromHex("#FFFFFF"), // medium
+		//ColorFromHex("#00AA00"), // near full
+		//ColorFromHex("#00FF00"), // full
 	}
 	return colors
 }
@@ -190,6 +201,17 @@ func GetVBar() []string {
 		"▄",
 		"▆",
 		"█",
+	}
+	return vbar
+}
+
+func GetBatBar() []string {
+	vbar := []string{
+		"",
+		"",
+		"",
+		"",
+		"",
 	}
 	return vbar
 }
@@ -209,19 +231,24 @@ func HBar(progress, size int, prune, other rune) string {
 // Color returns a suitable color for the given battery capacity/state.
 func (b Battery) Color() Color {
 	colors := GetColors()
-	return colors[int(b.Charge)/100.0*(len(colors)-1)]
+	return colors[int(float64(b.Charge)/100.0*float64(len(colors)-1))]
 }
 
 // Symbol returns a suitable symbol for the given battery capacity/state.
 func (b Battery) Symbol() string {
 	prefix := map[BatStatus]string{
+		//BatUnknown:     "",
+		//BatCharging:    "+",
+		//BatDischarging: "-",
+		//BatFull:        "",
 		BatUnknown:     "",
-		BatCharging:    "+",
-		BatDischarging: "-",
+		BatCharging:    " ",
+		BatDischarging: "",
 		BatFull:        "",
 	}
 
-	vbar := GetVBar()
+	//vbar := GetVBar()
+	vbar := GetBatBar()
 	symb := vbar[int(float64(b.Charge)/100.0*float64(len(vbar)-1))]
 	return fmt.Sprintf("%s%s", prefix[b.Status], symb)
 }
@@ -320,8 +347,7 @@ func (c CPU) UsagePerc() int {
 }
 
 func (c CPU) Color() Color {
-	colors := GetColors()
-	return colors[c.UsagePerc()/100.0*(len(colors)-1)]
+	return ColorFromHex("#8A8B8C")
 }
 
 func (c CPU) Symbol() string {
@@ -332,7 +358,7 @@ func (c CPU) Symbol() string {
 type CPUGenerator struct{}
 
 func (c CPUGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
-	stop, done chan bool) {
+	stop, done chan bool, errorch chan WidgetError) {
 	gen := func() (e []Element, err error) {
 		c, err := CPUInfo()
 		if err != nil {
@@ -344,7 +370,7 @@ func (c CPUGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
 		return
 	}
 	ticker := time.NewTicker(3 * time.Second)
-	generator(w, index, ch, stop, done, ticker.C, gen)
+	generator(w, index, ch, stop, done, errorch, ticker.C, gen)
 	ticker.Stop()
 }
 
@@ -352,12 +378,13 @@ type BatteryGenerator struct{}
 
 // Calls gen() every tick (timeout) until <-stop. On error the Error field
 // of the widget is set and the goroutine signifies it is 'done' and returns.
-func generator(w *Widget, index int, ch chan WidgetElem, stop, done chan bool,
+func generator(w *Widget, index int, ch chan WidgetElem, stop, done chan bool, errorch chan WidgetError,
 	tick <-chan time.Time, gen func() ([]Element, error)) {
 
 	prod, err := gen()
 	if err != nil {
 		w.Error = err
+		errorch <- WidgetError{index, err}
 		done <- true
 		return
 	}
@@ -380,6 +407,7 @@ func generator(w *Widget, index int, ch chan WidgetElem, stop, done chan bool,
 		prod, err := gen()
 		if err != nil {
 			w.Error = err
+			errorch <- WidgetError{index, err}
 			done <- true
 			return
 		}
@@ -388,7 +416,7 @@ func generator(w *Widget, index int, ch chan WidgetElem, stop, done chan bool,
 }
 
 type FsNotifyTicker struct {
-	C <-chan time.Time
+	C    <-chan time.Time
 	stop chan bool
 }
 
@@ -440,7 +468,7 @@ func NewFsNotifyTicker(paths []string) (ticker FsNotifyTicker) {
 }
 
 func (b BatteryGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
-	stop, done chan bool) {
+	stop, done chan bool, errorch chan WidgetError) {
 
 	gen := func() (e []Element, err error) {
 		bats, err := BatteryInfo()
@@ -459,8 +487,8 @@ func (b BatteryGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
 	//tick, fwdone := FileWatchTick([]string{PowerSupplyPath})
 	//generator(w, index, ch, stop, done, tick, gen)
 	//fwdone <- true
-	ticker := time.NewTicker(time.Second*10)
-	generator(w, index, ch, stop, done, ticker.C, gen)
+	ticker := time.NewTicker(time.Second * 10)
+	generator(w, index, ch, stop, done, errorch, ticker.C, gen)
 	ticker.Stop()
 	return
 }
@@ -468,7 +496,7 @@ func (b BatteryGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
 type ClockGenerator struct{}
 
 func (c ClockGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
-	stop, done chan bool) {
+	stop, done chan bool, errorch chan WidgetError) {
 	gen := func() (e []Element, err error) {
 		t := time.Now()
 		fmt := t.Format("Mon Jan 2 15:04:05")
@@ -476,7 +504,7 @@ func (c ClockGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
 		return
 	}
 	ticker := time.NewTicker(time.Second)
-	generator(w, index, ch, stop, done, ticker.C, gen)
+	generator(w, index, ch, stop, done, errorch, ticker.C, gen)
 	ticker.Stop()
 }
 
@@ -487,22 +515,24 @@ type CommandGenerator struct {
 	IsJSON     bool
 	IsArray    bool // used with IsJSON
 
-	TrimSpace  bool
+	TrimSpace bool
 }
 
 // Generate ...
 func (c CommandGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
-	stop, done chan bool) {
+	stop, done chan bool, errorch chan WidgetError) {
+
+	fail := func(err error) {
+		//w.Error = err
+		log.Printf("Command failed for widget #%d: %s\n", index, err)
+		return
+	}
+
 	gen := func() (e []Element, err error) {
 		cmd := c.CmdCreator()
 		outbytes, err := cmd.Output()
 		if err != nil {
-			w.Error = err
-
-			log.Printf("Command failed for widget #%d: %s\n", index, err)
-
-			e = append(e, Element{Name: "Command", Instance: c.Instance,
-				Alignment: AlignRight, FullText: fmt.Sprintf("ERROR: %s", err)})
+			fail(err)
 			return
 		}
 
@@ -522,14 +552,7 @@ func (c CommandGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
 			var elem Element
 			err = json.Unmarshal(outbytes, &elem)
 			if err != nil {
-				w.Error = err
-				red := ColorFromHex("#FF0000")
-				e = append(e,
-					Element{Name: "Command",
-						Instance:  c.Instance,
-						Alignment: AlignRight,
-						Color:     &red,
-						FullText:  fmt.Sprintf("ERROR: %s", err)})
+				fail(err)
 				return
 			}
 			e = append(e, elem)
@@ -537,14 +560,7 @@ func (c CommandGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
 			var elems []Element
 			err = json.Unmarshal(outbytes, &elems)
 			if err != nil {
-				w.Error = err
-				red := ColorFromHex("#FF0000")
-				e = append(e,
-					Element{Name: "Command",
-						Instance:  c.Instance,
-						Alignment: AlignRight,
-						Color:     &red,
-						FullText:  fmt.Sprintf("ERROR: %s", err)})
+				fail(err)
 				return
 			}
 
@@ -554,7 +570,7 @@ func (c CommandGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
 		}
 		return
 	}
-	generator(w, index, ch, stop, done, c.C, gen)
+	generator(w, index, ch, stop, done, errorch, c.C, gen)
 }
 
 // NOTE: Only JSON
@@ -566,29 +582,23 @@ type StreamingCommandGenerator struct {
 
 // Reads a stream where each line is a JSON encoded Element.
 func (c StreamingCommandGenerator) Generate(w *Widget, index int, ch chan WidgetElem,
-	stop, done chan bool) {
+	stop, done chan bool, errorch chan WidgetError) {
 
-	fail := func(err error) {
-		w.Error = err
+	failnow := func(err error) {
 		log.Printf("Command failed for widget #%d: %s\n", index, err)
+		w.Error = err
+		errorch <- WidgetError{index, err}
+		done <- true
 		return
 	}
 
-	start := func() (cmd *exec.Cmd, stdout io.ReadCloser, err error) {
-		cmd = c.CmdCreator()
-		stdout, err = cmd.StdoutPipe()
-		if err != nil {
-			return
-		}
-		err = cmd.Start()
-		return
-	}
-
-	_, stdout, err := start()
+	cmd := c.CmdCreator()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		fail(err)
+		failnow(err)
 		return
 	}
+	err = cmd.Start()
 
 	// Channel for lines read from stdin
 	stdoutch := make(chan []byte, 1)
@@ -600,7 +610,7 @@ func (c StreamingCommandGenerator) Generate(w *Widget, index int, ch chan Widget
 		for {
 			bytes, err := r.ReadBytes('\n')
 			if err != nil {
-				fail(err)
+				failnow(err)
 				close(ticker)
 				close(ch)
 				return
@@ -616,17 +626,15 @@ func (c StreamingCommandGenerator) Generate(w *Widget, index int, ch chan Widget
 		var elem Element
 		err = json.Unmarshal(<-stdoutch, &elem)
 		if err != nil {
-			fail(err)
+			//failnow(err)
 			return
 		}
 		e = append(e, elem)
 		return
 	}
-	generator(w, index, ch, stop, done, tickerch, gen)
-
+	generator(w, index, ch, stop, done, errorch, tickerch, gen)
 	//cmd.Wait()
 }
-
 
 func main() {
 	// TODO support SIGSTOP/SIGCONT
@@ -686,10 +694,11 @@ func main() {
 	wechan := make(chan WidgetElem)
 	stop := make(chan bool, len(widgets))
 	done := make(chan bool)
+	errorch := make(chan WidgetError, len(widgets))
 
 	// Start widget generators.
 	for i, widget := range widgets {
-		go widget.Generator.Generate(&widget, i, wechan, stop, done)
+		go widget.Generator.Generate(&widget, i, wechan, stop, done, errorch)
 	}
 
 	// Main loop
@@ -705,6 +714,16 @@ func main() {
 			log.Println("Catched SIGTERM, stopping!")
 			running = false
 			break
+
+		case werror := <-errorch:
+			log.Printf("Catched error, updating: %d, %v\n", werror.Index, werror.Error)
+			red := ColorFromHex("#FF0000")
+			cache[werror.Index] = []Element{Element{Name: "error",
+				Alignment: AlignRight,
+				Color:     &red,
+				FullText:  fmt.Sprintf("ERROR: %v", werror.Error)}}
+			update()
+			break
 		}
 	}
 
@@ -719,6 +738,8 @@ func main() {
 	for remaining {
 		select {
 		case <-wechan:
+			break
+		case <-errorch:
 			break
 		default:
 			remaining = false
