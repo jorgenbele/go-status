@@ -6,10 +6,11 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/signal"
-	"syscall"
 )
 
+// BarWriter is an interface wrapping an io.Writer with
+// an additional Flush() function to ensure that the bar is
+// updated on write. (can use bufio.Writer).
 type BarWriter interface {
 	io.Writer
 	Flush() error
@@ -31,6 +32,7 @@ type Element struct {
 	SeparatorBlockWidth int      `json:"separator_block_width,omitempty"`
 }
 
+// AlignStr represents the various ways to aligning widgets.
 type AlignStr string
 
 const (
@@ -39,17 +41,27 @@ const (
 	AlignCenter AlignStr = "center"
 )
 
+// Status is used to generate the statusline from a set of widgets.
 type Status struct {
 	started bool
 	widgets []Widget
 	cache   [][]Element
 	w       BarWriter
+
+	sigstopch <-chan os.Signal
+	sigcontch <-chan os.Signal
+	sigtermch <-chan os.Signal
 }
 
+// NewStatus creates a new status.
 func NewStatus(w BarWriter) Status {
 	return Status{w: w}
 }
 
+// AddWidget adds the given widget to the slice of widgets to be
+// displayed on the statusline. The order of AddWidget calls is the
+// order which is used for the statusline. (May differ based upon
+// alignment.)
 func (s *Status) AddWidget(w Widget) {
 	if s.started {
 		panic(fmt.Errorf("cannot add a widget to a started status"))
@@ -57,9 +69,35 @@ func (s *Status) AddWidget(w Widget) {
 	s.widgets = append(s.widgets, w)
 }
 
+// SetStopSignal sets stop signal, usually this would be SIGSTOP.
+func (s *Status) SetStopSignal(c <-chan os.Signal) {
+	if s.started {
+		panic(fmt.Errorf("cannot set stop signal since status already started"))
+	}
+	s.sigstopch = c
+}
+
+// SetContSignal sets cont signal, usually this would be SIGCONT.
+func (s *Status) SetContSignal(c <-chan os.Signal) {
+	if s.started {
+		panic(fmt.Errorf("cannot set cont signal since status already started"))
+	}
+	s.sigcontch = c
+}
+
+// SetTermSignal sets sigterm signal, usually this would be SIGTERM.
+func (s *Status) SetTermSignal(c <-chan os.Signal) {
+	if s.started {
+		panic(fmt.Errorf("cannot set sigterm signal since status already started"))
+	}
+	s.sigtermch = c
+}
+
+// Start starts the status loop which will run until the
+// term signal is recieved.
 func (s *Status) Start() {
 	if s.started {
-		panic(fmt.Errorf("already started"))
+		panic(fmt.Errorf("attempting to start an already started status"))
 	}
 	s.started = true
 	s.cache = make([][]Element, len(s.widgets))
@@ -87,11 +125,7 @@ func (s *Status) Start() {
 		go widget.Generator.Generate(&widget, i, &ctx)
 	}
 
-	// Register sigtermhandler
-	sigtermchan := make(chan os.Signal)
-	signal.Notify(sigtermchan, os.Interrupt, syscall.SIGTERM)
-
-	// Loop.
+	// Loop until a term signal is recieved.
 	running := true
 	for running {
 		select {
@@ -100,13 +134,39 @@ func (s *Status) Start() {
 			update()
 			break
 
-		case <-sigtermchan:
-			log.Println("Catched SIGTERM, stopping!")
+		case <-s.sigstopch:
+			log.Println("Recieved stop signal, stopping!")
+
+			// NOTE: Does not stop the running processes, but
+			// ignores the we and werror channel until sigcont or
+			// sigterm.
+			select {
+			case <-s.sigcontch:
+				log.Println("Recieved cont signal while stopped, continuing!")
+				break
+
+			case <-s.sigstopch:
+				log.Println("Recieved stop signal while stopped, ignoring!")
+				break
+
+			case <-s.sigtermch:
+				running = false
+				log.Println("Recieved term signal while stopped, shutting down!")
+				break
+			}
+			break
+
+		case <-s.sigcontch:
+			log.Println("Recieved cont signal while running, ignoring!")
+			break
+
+		case <-s.sigtermch:
+			log.Println("Recieved term signal, shutting down!")
 			running = false
 			break
 
 		case werror := <-ctx.errorch:
-			log.Printf("Catched error, updating: %d, %v\n", werror.Index, werror.Error)
+			log.Printf("Recieved widget error, updating: %d, %v\n", werror.Index, werror.Error)
 			red := ColorFromHex("#FF0000")
 			s.cache[werror.Index] = []Element{Element{Name: "error",
 				Alignment: AlignRight,
@@ -123,27 +183,22 @@ func (s *Status) Start() {
 		ctx.stop <- true
 	}
 
-	// Take all remaining products and errors.
-	log.Println("Consuming remaining products (errors and widgets).")
-	remaining := true
-	for remaining {
+	// Wait for all widgets to send done.
+	// Consume products while waiting since some widgets
+	// may still have uncomsumed channel messages.
+	log.Println("Waiting for done messages.")
+	remaining := len(s.widgets)
+	for remaining != 0 {
 		select {
+		case <-ctx.done:
+			remaining--
+			break
 		case <-ctx.ch:
 			break
 		case <-ctx.errorch:
 			break
-		default:
-			remaining = false
 		}
 	}
 
-	// Wait for all widgets to send done.
-	log.Println("Waiting for done messages.")
-	for i := 0; i < len(s.widgets); i++ {
-		select {
-		case <-ctx.done:
-			break
-		}
-	}
-	log.Println("Stopped all goroutines. Shutting down.")
+	log.Println("Stopped all widgets. Shutting down.")
 }
