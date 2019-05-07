@@ -31,7 +31,7 @@ func NewFsNotifyTicker(paths []string) (ticker FsNotifyTicker) {
 		for {
 			select {
 			case <-ticker.stop:
-				log.Println("Stopping FsNotifyTick on paths: %v", paths)
+				log.Printf("Stopping FsNotifyTick on paths: %v\n", paths)
 				return
 
 			case event, ok := <-watcher.Events:

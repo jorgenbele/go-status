@@ -120,8 +120,6 @@ func (c StreamingCommandGenerator) Generate(w *Widget, index int, ctx *Generator
 			ticker <- time.Now()
 			ch <- bytes
 		}
-		close(ch)
-		close(ticker)
 	}(stdoutch, tickerch, stdout)
 
 	gen := func() (e []Element, err error) {
