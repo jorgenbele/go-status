@@ -64,7 +64,7 @@ func (b *lemonbar) Write(v []Element) (err error) {
 		bytes = append(bytes, []byte(str)...)
 	}
 	bytes = append(bytes, '\n')
-	b.out.Write(bytes)
+	_, err = b.out.Write(bytes)
 
 	// TODO: Support other formatting options.
 	b.out.Flush()
