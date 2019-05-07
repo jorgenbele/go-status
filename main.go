@@ -1,8 +1,8 @@
-// TODO: Code cleanup
 package main
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -62,8 +62,37 @@ func main() {
 	out := bufio.NewWriter(os.Stdout)
 	defer out.Flush()
 
-	i3writer := NewI3BarWriter(I3BarHeader{Version: 1}, *out)
-	status := NewStatus(i3writer)
+	usage := func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [--format (i3bar | lemonbar | dzen2)]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "\nIf no --format <bar> is specified then i3bar is used.\n")
+		os.Exit(1)
+	}
+
+	var b Bar
+	if len(os.Args) == 3 && os.Args[1] == "--format" {
+		switch os.Args[2] {
+		case "lemonbar":
+			b = NewLemonbar(out)
+			break
+
+		case "dzen2":
+			b = NewDzen2Bar(out)
+			break
+
+		case "i3bar":
+			b = NewI3Bar(I3BarHeader{Version: 1}, out)
+			break
+
+		default:
+			usage()
+		}
+	} else if len(os.Args) == 1 {
+		b = NewI3Bar(I3BarHeader{Version: 1}, out)
+	} else {
+		usage()
+	}
+
+	status := NewStatus(b)
 
 	for _, w := range widgets {
 		status.AddWidget(w)
@@ -73,13 +102,13 @@ func main() {
 	signal.Notify(sigtermch, os.Interrupt, syscall.SIGTERM)
 	status.SetTermSignal(sigtermch)
 
-	sigstopch := make(chan os.Signal)
-	signal.Notify(sigstopch, os.Interrupt, syscall.SIGSTOP)
-	status.SetStopSignal(sigstopch)
+	//sigstopch := make(chan os.Signal)
+	//signal.Notify(sigstopch, os.Interrupt, syscall.SIGTSTP)
+	//status.SetStopSignal(sigstopch)
 
-	sigcontch := make(chan os.Signal)
-	signal.Notify(sigcontch, os.Interrupt, syscall.SIGCONT)
-	status.SetContSignal(sigcontch)
+	//sigcontch := make(chan os.Signal)
+	//signal.Notify(sigcontch, os.Interrupt, syscall.SIGCONT)
+	//status.SetContSignal(sigcontch)
 
 	status.Start()
 }

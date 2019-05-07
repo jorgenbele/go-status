@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 )
 
@@ -13,69 +12,51 @@ type I3BarHeader struct {
 	ClickEvents bool `json:"click_events,omitempty"`
 }
 
-type I3BarWriter interface {
-	BarWriter
-}
-
 type i3Bar struct {
-	I3BarWriter
+	Bar
 
 	header      I3BarHeader
-	out         bufio.Writer
+	out         BarWriter
 	wroteHeader bool
 }
 
-func NewI3BarWriter(header I3BarHeader, out bufio.Writer) I3BarWriter {
+// NewI3BarWriter creates a BarWriter which outputs in i3bar format.
+func NewI3Bar(header I3BarHeader, out BarWriter) Bar {
 	return &i3Bar{header: header, out: out}
 }
 
 func (w *i3Bar) writeHeader() (n int, err error) {
+	bytes := make([]byte, 0)
+
 	header, err := json.Marshal(I3BarHeader{Version: 1})
 	if err != nil {
 		return
 	}
-	wrote, err := w.out.Write(header)
-	if err != nil {
-		return
-	}
-	n += wrote
-	wrote, err = w.out.Write([]byte{'\n', '[', '\n', '[', ']', '\n'})
-	if err != nil {
-		return
-	}
-	n += wrote
+	bytes = append(bytes, header...)
+	bytes = append(bytes, []byte{'\n', '[', '\n', '[', ']', '\n'}...)
 	w.wroteHeader = true
-	return
+	return w.out.Write(bytes)
 }
 
-func (w *i3Bar) Write(p []byte) (n int, err error) {
+func (w *i3Bar) Write(v []Element) (err error) {
+	bytes := make([]byte, 0)
+
+	data, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
 	if !w.wroteHeader {
-		n, err = w.writeHeader()
+		_, err = w.writeHeader()
 		if err != nil {
 			return
 		}
 	}
 
-	var wrote int
-	wrote, err = w.out.Write([]byte{','})
-	if err != nil {
-		return
-	}
-	n += wrote
+	bytes = append(bytes, ',')
+	bytes = append(bytes, data...)
+	bytes = append(bytes, '\n')
 
-	wrote, err = w.out.Write(p)
-
-	if err != nil {
-		return
-	}
-	n += wrote
-
-	wrote, err = w.out.Write([]byte{'\n'})
-	if err != nil {
-		return
-	}
-	n += wrote
-
+	_, err = w.out.Write(bytes)
 	w.out.Flush()
 	return
 }

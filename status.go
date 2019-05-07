@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -14,6 +13,11 @@ import (
 type BarWriter interface {
 	io.Writer
 	Flush() error
+}
+
+// Bar ...
+type Bar interface {
+	Write(e []Element) error
 }
 
 // Element contains the fields returned from the widget generators.
@@ -36,6 +40,7 @@ type Element struct {
 type AlignStr string
 
 const (
+	AlignNone   AlignStr = ""
 	AlignLeft   AlignStr = "left"
 	AlignRight  AlignStr = "right"
 	AlignCenter AlignStr = "center"
@@ -46,7 +51,7 @@ type Status struct {
 	started bool
 	widgets []Widget
 	cache   [][]Element
-	w       BarWriter
+	b       Bar
 
 	sigstopch <-chan os.Signal
 	sigcontch <-chan os.Signal
@@ -54,8 +59,8 @@ type Status struct {
 }
 
 // NewStatus creates a new status.
-func NewStatus(w BarWriter) Status {
-	return Status{w: w}
+func NewStatus(b Bar) Status {
+	return Status{b: b}
 }
 
 // AddWidget adds the given widget to the slice of widgets to be
@@ -111,11 +116,16 @@ func (s *Status) Start() {
 				v = append(v, e)
 			}
 		}
-		data, err := json.Marshal(v)
+
+		//data, err := json.Marshal(v)
+		//if err != nil {
+		//	panic(err)
+		//}
+		//s.w.Write(data)
+		err := s.b.Write(v)
 		if err != nil {
 			panic(err)
 		}
-		s.w.Write(data)
 	}
 
 	ctx := NewGeneratorCtx(len(s.widgets))
