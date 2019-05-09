@@ -8,53 +8,54 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	"status1/status"
 )
 
 func main() {
 	// NOTE: time.Tick(...) is used instead of time.NewTicker(...) because
 	// the program will be shutting down when the Widget is shutting down.
-	widgets := []Widget{
-		Widget{
-			Generator: CommandGenerator{Instance: "spotify",
+	widgets := []status.Widget{
+		status.Widget{
+			Gen: CmdGen{Instance: "spotify",
 				C:      time.Tick(time.Second * 10),
 				IsJSON: true,
 				CmdCreator: func() *exec.Cmd {
 					return exec.Command("spotifystatus", "--json")
 				}}},
 
-		Widget{Generator: StreamingCommandGenerator{
+		status.Widget{Gen: StreamingCmdGen{
 			Instance: "nmcliwatcher",
 			CmdCreator: func() *exec.Cmd {
 				return exec.Command("nm_watcher", "wlp3s0")
 			}}},
 
-		Widget{Generator: StreamingCommandGenerator{
+		status.Widget{Gen: StreamingCmdGen{
 			Instance: "mullvadwatcher",
 			CmdCreator: func() *exec.Cmd {
 				return exec.Command("mullvad_watcher")
 			}}},
 
-		Widget{
-			Generator: CommandGenerator{Instance: "mullvadvpn",
+		status.Widget{
+			Gen: CmdGen{Instance: "mullvadvpn",
 				C:      time.Tick(time.Second * 10),
 				IsJSON: true,
 				CmdCreator: func() *exec.Cmd {
 					return exec.Command("mullvad_jsonblock")
 				}}},
 
-		Widget{Generator: BatteryGenerator{
-			Alignment: AlignRight,
+		status.Widget{Gen: BatteryGen{
+			Alignment: status.AlignRight,
 			Every:     time.Second * 10,
 		}},
 
-		Widget{Generator: CPUGenerator{
-			Alignment: AlignRight,
+		status.Widget{Gen: CPUGen{
+			Alignment: status.AlignRight,
 			Every:     time.Second * 10,
 		}},
 
-		Widget{Generator: ClockGenerator{
+		status.Widget{Gen: ClockGen{
 			Format:    "Mon Jan 2 15:04:05",
-			Alignment: AlignRight,
+			Alignment: status.AlignRight,
 			Every:     time.Second,
 		}},
 	}
@@ -68,39 +69,39 @@ func main() {
 		os.Exit(1)
 	}
 
-	var b Bar
+	var b status.Bar
 	if len(os.Args) == 3 && os.Args[1] == "--format" {
 		switch os.Args[2] {
 		case "lemonbar":
-			b = NewLemonbar(out)
+			b = status.NewLemonbar(out)
 			break
 
 		case "dzen2":
-			b = NewDzen2Bar(out)
+			b = status.NewDzen2Bar(out)
 			break
 
 		case "i3bar":
-			b = NewI3Bar(I3BarHeader{Version: 1}, out)
+			b = status.NewI3Bar(status.I3BarHeader{Version: 1}, out)
 			break
 
 		default:
 			usage()
 		}
 	} else if len(os.Args) == 1 {
-		b = NewI3Bar(I3BarHeader{Version: 1}, out)
+		b = status.NewI3Bar(status.I3BarHeader{Version: 1}, out)
 	} else {
 		usage()
 	}
 
-	status := NewStatus(b)
+	s := status.NewStatus(b)
 
 	for _, w := range widgets {
-		status.AddWidget(w)
+		s.AddWidget(w)
 	}
 
 	sigtermch := make(chan os.Signal)
 	signal.Notify(sigtermch, os.Interrupt, syscall.SIGTERM)
-	status.SetTermSignal(sigtermch)
+	s.SetTermSignal(sigtermch)
 
 	//sigstopch := make(chan os.Signal)
 	//signal.Notify(sigstopch, os.Interrupt, syscall.SIGTSTP)
@@ -110,5 +111,5 @@ func main() {
 	//signal.Notify(sigcontch, os.Interrupt, syscall.SIGCONT)
 	//status.SetContSignal(sigcontch)
 
-	status.Start()
+	s.Start()
 }

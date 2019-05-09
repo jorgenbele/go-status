@@ -1,4 +1,4 @@
-package main
+package status
 
 import (
 	"github.com/fsnotify/fsnotify"
@@ -15,8 +15,10 @@ type FsNotifyTicker struct {
 func (t *FsNotifyTicker) Stop() {
 	t.stop <- true
 }
+// NewFsNotifyTicker creates ticker which ticks for each fsnotify on
+// one of the provided paths.
 func NewFsNotifyTicker(paths []string) (ticker FsNotifyTicker) {
-	// File watcher
+	// File watcher.
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Fatal(err)
@@ -25,6 +27,13 @@ func NewFsNotifyTicker(paths []string) (ticker FsNotifyTicker) {
 	c := make(chan time.Time)
 	ticker.C = c
 	ticker.stop = make(chan bool)
+
+	for _, p := range paths {
+		err = watcher.Add(p)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
 
 	go func() {
 		defer watcher.Close()
@@ -49,12 +58,5 @@ func NewFsNotifyTicker(paths []string) (ticker FsNotifyTicker) {
 			}
 		}
 	}()
-
-	for _, p := range paths {
-		err = watcher.Add(p)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
 	return
 }

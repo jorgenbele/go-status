@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"status1/status"
 )
 
 // LoadAvg reads /proc/loadavg and returns it as a string slice
@@ -76,32 +77,34 @@ func (c CPU) UsagePerc() int {
 	return int(c.Usage / float64(c.Cores) * 100.0)
 }
 
-func (c CPU) Color() Color {
-	return ColorFromHex("#8A8B8C")
+func (c CPU) Color() status.Color {
+	return status.ColorFromHex("#8A8B8C")
 }
 
 func (c CPU) Symbol() string {
 	size := 5
-	return HBar(int(c.Usage/float64(c.Cores)*float64(size)), size, '+', '-')
+	return status.HBar(int(c.Usage/float64(c.Cores)*float64(size)), size, '+', '-')
 }
 
-type CPUGenerator struct {
-	Alignment AlignStr
+// CPUGen gets the CPU utilization by reading the /proc/loadavg file.
+type CPUGen struct {
+	Alignment status.AlignStr
 	Every     time.Duration
 }
 
-func (c CPUGenerator) Generate(w *Widget, index int, ctx *GeneratorCtx) {
-	gen := func() (e []Element, err error) {
+// Generate ...
+func (c CPUGen) Generate(w *status.Widget, index int, ctx *status.GeneratorCtx) {
+	gen := func() (e []status.Element, err error) {
 		cpu, err := CPUInfo()
 		if err != nil {
 			return
 		}
 		color := cpu.Color()
-		e = append(e, Element{Name: "CPU", Alignment: c.Alignment, Color: &color,
+		e = append(e, status.Element{Name: "CPU", Alignment: c.Alignment, Color: &color,
 			FullText: fmt.Sprintf("%d%% %s", cpu.UsagePerc(), cpu.Symbol())})
 		return
 	}
 	ticker := time.NewTicker(c.Every)
-	generator(w, index, ctx, ticker.C, gen)
+	status.Generatorfunc(w, index, ctx, ticker.C, gen)
 	ticker.Stop()
 }

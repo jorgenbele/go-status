@@ -1,4 +1,4 @@
-package main
+package status
 
 import (
 	"fmt"
@@ -39,27 +39,27 @@ func ColorFromHex(hex string) (c Color) {
 
 // Calls gen() every tick (timeout) until <-stop. On error the Error field
 // of the widget is set and the goroutine signifies it is 'done' and returns.
-func generator(w *Widget, index int, ctx *GeneratorCtx,
+func Generatorfunc(w *Widget, index int, ctx *GeneratorCtx,
 	tick <-chan time.Time, gen func() ([]Element, error)) {
 
 	prod, err := gen()
 	if err != nil {
 		w.Error = err
-		ctx.errorch <- WidgetError{index, err}
-		ctx.done <- true
+		ctx.Errorch <- WidgetError{index, err}
+		ctx.Done <- true
 		return
 	}
-	ctx.ch <- WidgetElem{index, prod}
+	ctx.Ch <- WidgetElem{index, prod}
 
 	for {
 		select {
-		case <-ctx.stop:
-			ctx.done <- true
+		case <-ctx.Stop:
+			ctx.Done <- true
 			return
 
 		case _, ok := <-tick:
 			if !ok {
-				ctx.done <- true
+				ctx.Done <- true
 				return
 			}
 			break
@@ -68,10 +68,10 @@ func generator(w *Widget, index int, ctx *GeneratorCtx,
 		prod, err := gen()
 		if err != nil {
 			w.Error = err
-			ctx.errorch <- WidgetError{index, err}
-			ctx.done <- true
+			ctx.Errorch <- WidgetError{index, err}
+			ctx.Done <- true
 			return
 		}
-		ctx.ch <- WidgetElem{index, prod}
+		ctx.Ch <- WidgetElem{index, prod}
 	}
 }

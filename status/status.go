@@ -1,4 +1,4 @@
-package main
+package status
 
 import (
 	"fmt"
@@ -132,14 +132,14 @@ func (s *Status) Start() {
 
 	// Start goroutines.
 	for i, widget := range s.widgets {
-		go widget.Generator.Generate(&widget, i, &ctx)
+		go widget.Gen.Generate(&widget, i, &ctx)
 	}
 
 	// Loop until a term signal is recieved.
 	running := true
 	for running {
 		select {
-		case we := <-ctx.ch:
+		case we := <-ctx.Ch:
 			s.cache[we.Index] = we.e
 			update()
 			break
@@ -175,7 +175,7 @@ func (s *Status) Start() {
 			running = false
 			break
 
-		case werror := <-ctx.errorch:
+		case werror := <-ctx.Errorch:
 			log.Printf("Recieved widget error, updating: %d, %v\n", werror.Index, werror.Error)
 			red := ColorFromHex("#FF0000")
 			s.cache[werror.Index] = []Element{Element{Name: "error",
@@ -190,7 +190,7 @@ func (s *Status) Start() {
 	// Stop widget generators.
 	log.Println("Sending stop to all widgets.")
 	for i := 0; i < len(s.widgets); i++ {
-		ctx.stop <- true
+		ctx.Stop <- true
 	}
 
 	// Wait for all widgets to send done.
@@ -200,12 +200,12 @@ func (s *Status) Start() {
 	remaining := len(s.widgets)
 	for remaining != 0 {
 		select {
-		case <-ctx.done:
+		case <-ctx.Done:
 			remaining--
 			break
-		case <-ctx.ch:
+		case <-ctx.Ch:
 			break
-		case <-ctx.errorch:
+		case <-ctx.Errorch:
 			break
 		}
 	}

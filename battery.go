@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"status1/status"
 )
 
 const (
@@ -27,7 +28,7 @@ const (
 )
 
 var batBar [5]string
-var batColors [5]Color
+var batColors [5]status.Color
 var batPrefix map[BatStatus]string
 var batStatus map[string]BatStatus
 
@@ -40,12 +41,12 @@ func init() {
 		"",
 	}
 
-	batColors = [...]Color{
-		ColorFromHex("#B82E34"), // very low
-		ColorFromHex("#B82E34"), // low
-		ColorFromHex("#8A8B8C"), // medium
-		ColorFromHex("#8A8B8C"), // near full
-		ColorFromHex("#8A8B8C"), // full
+	batColors = [...]status.Color{
+		status.ColorFromHex("#B82E34"), // very low
+		status.ColorFromHex("#B82E34"), // low
+		status.ColorFromHex("#8A8B8C"), // medium
+		status.ColorFromHex("#8A8B8C"), // near full
+		status.ColorFromHex("#8A8B8C"), // full
 	}
 
 	batPrefix = map[BatStatus]string{
@@ -96,7 +97,7 @@ type Battery struct {
 }
 
 // Color returns a suitable color for the given battery capacity/state.
-func (b Battery) Color() Color {
+func (b Battery) Color() status.Color {
 	return batColors[int(float64(b.Charge)/100.0*float64(len(batColors)-1))]
 }
 
@@ -131,21 +132,21 @@ func BatteryInfo() ([]Battery, error) {
 	return bats, nil
 }
 
-type BatteryGenerator struct {
-	Alignment AlignStr
+type BatteryGen struct {
+	Alignment status.AlignStr
 	Every     time.Duration
 }
 
-func (b BatteryGenerator) Generate(w *Widget, index int, ctx *GeneratorCtx) {
+func (b BatteryGen) Generate(w *status.Widget, index int, ctx *status.GeneratorCtx) {
 
-	gen := func() (e []Element, err error) {
+	gen := func() (e []status.Element, err error) {
 		bats, err := BatteryInfo()
 		if err != nil {
 			return
 		}
 		for _, bat := range bats {
 			color := bat.Color()
-			e = append(e, Element{Name: "Battery", Instance: bat.Path,
+			e = append(e, status.Element{Name: "Battery", Instance: bat.Path,
 				Alignment: b.Alignment, Color: &color,
 				FullText: fmt.Sprintf("%d%% %s", bat.Charge, bat.Symbol())})
 		}
@@ -153,7 +154,7 @@ func (b BatteryGenerator) Generate(w *Widget, index int, ctx *GeneratorCtx) {
 	}
 
 	ticker := time.NewTicker(b.Every)
-	generator(w, index, ctx, ticker.C, gen)
+	status.Generatorfunc(w, index, ctx, ticker.C, gen)
 	ticker.Stop()
 	return
 }

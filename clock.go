@@ -2,22 +2,23 @@ package main
 
 import (
 	"time"
+	"status1/status"
 )
 
-type ClockGenerator struct {
+type ClockGen struct {
 	Format    string
-	Alignment AlignStr
+	Alignment status.AlignStr
 	Every     time.Duration
 }
 
-func (c ClockGenerator) Generate(w *Widget, index int, ctx *GeneratorCtx) {
-	gen := func() (e []Element, err error) {
+func (c ClockGen) Generate(w *status.Widget, index int, ctx *status.GeneratorCtx) {
+	gen := func() (e []status.Element, err error) {
 		t := time.Now()
 		fmt := t.Format(c.Format)
-		e = append(e, Element{Name: "Clock", Alignment: c.Alignment, FullText: fmt})
+		e = append(e, status.Element{Name: "Clock", Alignment: c.Alignment, FullText: fmt})
 		return
 	}
 	ticker := time.NewTicker(c.Every)
-	generator(w, index, ctx, ticker.C, gen)
+	status.Generatorfunc(w, index, ctx, ticker.C, gen)
 	ticker.Stop()
 }

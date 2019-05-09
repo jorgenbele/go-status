@@ -10,9 +10,10 @@ import (
 	"time"
 
 	"log"
+	"status1/status"
 )
 
-type CommandGenerator struct {
+type CmdGen struct {
 	C          <-chan time.Time
 	Instance   string
 	CmdCreator func() *exec.Cmd
@@ -23,7 +24,7 @@ type CommandGenerator struct {
 }
 
 // Generate ...
-func (c CommandGenerator) Generate(w *Widget, index int, ctx *GeneratorCtx) {
+func (c CmdGen) Generate(w *status.Widget, index int, ctx *status.GeneratorCtx) {
 
 	fail := func(err error) {
 		//w.Error = err
@@ -31,7 +32,7 @@ func (c CommandGenerator) Generate(w *Widget, index int, ctx *GeneratorCtx) {
 		return
 	}
 
-	gen := func() (e []Element, err error) {
+	gen := func() (e []status.Element, err error) {
 		cmd := c.CmdCreator()
 		outbytes, err := cmd.Output()
 		if err != nil {
@@ -47,12 +48,12 @@ func (c CommandGenerator) Generate(w *Widget, index int, ctx *GeneratorCtx) {
 				out = string(outbytes)
 			}
 			e = append(e,
-				Element{Name: "Command",
+				status.Element{Name: "Command",
 					Instance:  c.Instance,
-					Alignment: AlignRight,
+					Alignment: status.AlignRight,
 					FullText:  string(out)})
 		} else if !c.IsArray {
-			var elem Element
+			var elem status.Element
 			err = json.Unmarshal(outbytes, &elem)
 			if err != nil {
 				fail(err)
@@ -60,7 +61,7 @@ func (c CommandGenerator) Generate(w *Widget, index int, ctx *GeneratorCtx) {
 			}
 			e = append(e, elem)
 		} else {
-			var elems []Element
+			var elems []status.Element
 			err = json.Unmarshal(outbytes, &elems)
 			if err != nil {
 				fail(err)
@@ -73,24 +74,25 @@ func (c CommandGenerator) Generate(w *Widget, index int, ctx *GeneratorCtx) {
 		}
 		return
 	}
-	generator(w, index, ctx, c.C, gen)
+	status.Generatorfunc(w, index, ctx, c.C, gen)
 }
 
-// NOTE: Only JSON
-type StreamingCommandGenerator struct {
+// StreamingCmdGen reads from JSON on a line by line
+// basis from stdout of a process specified by CmdCreator.
+type StreamingCmdGen struct {
 	Instance   string
 	Restart    bool
 	CmdCreator func() *exec.Cmd
 }
 
-// Reads a stream where each line is a JSON encoded Element.
-func (c StreamingCommandGenerator) Generate(w *Widget, index int, ctx *GeneratorCtx) {
+// Generate reads a stream where each line is a JSON encoded status.Element.
+func (c StreamingCmdGen) Generate(w *status.Widget, index int, ctx *status.GeneratorCtx) {
 
 	failnow := func(err error) {
 		log.Printf("Command failed for widget #%d: %s\n", index, err)
 		w.Error = err
-		ctx.errorch <- WidgetError{index, err}
-		ctx.done <- true
+		ctx.Errorch <- status.WidgetError{index, err}
+		ctx.Done <- true
 		return
 	}
 
@@ -122,8 +124,8 @@ func (c StreamingCommandGenerator) Generate(w *Widget, index int, ctx *Generator
 		}
 	}(stdoutch, tickerch, stdout)
 
-	gen := func() (e []Element, err error) {
-		var elem Element
+	gen := func() (e []status.Element, err error) {
+		var elem status.Element
 		err = json.Unmarshal(<-stdoutch, &elem)
 		if err != nil {
 			//failnow(err)
@@ -132,6 +134,6 @@ func (c StreamingCommandGenerator) Generate(w *Widget, index int, ctx *Generator
 		e = append(e, elem)
 		return
 	}
-	generator(w, index, ctx, tickerch, gen)
+	status.Generatorfunc(w, index, ctx, tickerch, gen)
 	//cmd.Wait()
 }
