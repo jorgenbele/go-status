@@ -13,15 +13,18 @@ function reset_state()
     relay    = "unknown"
     location = "unknown"
     position = "unknown"
+
+    icon     = " "
 }
 
 function updatestate()
 {
     if ($1 == "Tunnel status") {
-        if ($2 == "Connected")              {                tstatus="connected";    color = "#FFFFFF" }
-        else if ($2 == "Disconnecting...")  { reset_state(); tstatus="disconnected"; color = "#FF5500" }
-        else if ($2 == "Connecting...")     {                tstatus="connecting";   color = "#009900" }
-        else if ($2 == "Blocked")           { reset_state(); tstatus="blocked";      color = "#FF0000" }
+        if (match($2, "^Connected.*"))           { relay = "connected"; tstatus="connected"; color = "#FFFFFF" }
+        else if ($2 == "Disconnecting...")       { reset_state(); tstatus="disconnecting";   color = "#FF5500" }
+        else if ($2 == "Disconnected")           { reset_state(); tstatus="disconnected";    color = "#FF5500" }
+        else if (match($2, "^Connecting.*"))     {                tstatus="connecting";      color = "#009900" }
+        else if ($2 == "Blocked")                { reset_state(); tstatus="blocked";         color = "#FF0000" }
     }
     else if ($1 == "Relay")    relay    = $2
     else if ($1 == "Location") location = $2
@@ -31,9 +34,9 @@ function updatestate()
 function printstate()
 {
     if (tstatus != "connected")
-        printf "{\"full_text\": \"%s\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", tstatus, "right", "nmcli_con", color;
+        printf "{\"full_text\": \"%s%s\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", icon, tstatus, "right", "nmcli_con", color;
     else
-        printf "{\"full_text\": \"%s\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", relay, "right", "nmcli_con", color;
+        printf "{\"full_text\": \"%s%s\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", icon, relay, "right", "nmcli_con", color;
     fflush()
 }
 
