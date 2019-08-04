@@ -14,6 +14,8 @@ function reset_state()
     location = "unknown"
     position = "unknown"
 
+    bstatus = "non-blocking"
+
     icon     = " "
 }
 
@@ -31,12 +33,29 @@ function updatestate()
     else if ($1 == "Position") position = $2
 }
 
+function is_blocking_when_disconnected() {
+    command = "mullvad block-when-disconnected get"
+    (command |& getline)
+    if ($0 == "Network traffic will be blocked when the VPN is disconnected") {
+        bstatus = "blocking"
+    }
+    close(command)
+    return blocking
+}
+
 function printstate()
 {
-    if (tstatus != "connected")
-        printf "{\"full_text\": \"%s%s\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", icon, tstatus, "right", "nmcli_con", color;
-    else
-        printf "{\"full_text\": \"%s%s\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", icon, relay, "right", "nmcli_con", color;
+    if (tstatus != "connected") {
+        blocking_status = ""
+        is_blocking_when_disconnected()
+        if (bstatus == "blocking") {
+            blocking_status = "  "
+        } else {
+            blocking_status = " (non-blocking)"
+        }
+
+        printf "{\"full_text\": \"%s%s%s\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", icon, tstatus, blocking_status, "right", "nmcli_con", color;
+    } else printf "{\"full_text\": \"%s%s\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", icon, relay, "right", "nmcli_con", color;
     fflush()
 }
 
@@ -45,7 +64,7 @@ BEGIN {
 
    for (;;) {
        command = "mullvad status listen"
-       reset_state()
+       #reset_state()
 
        while ((command |& getline) > 0) {
            if (length($1) == 0) {
