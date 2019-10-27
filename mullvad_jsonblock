@@ -1,0 +1,10 @@
+#!/bin/sh
+icon="🔓"
+color="#FF0000"
+
+if [ "$(curl --connect-timeout 10 -s https://am.i.mullvad.net/json | jq .mullvad_exit_ip)" = "true" ]; then
+    icon="🔒"
+    color="#00ff00"
+fi
+
+echo "{\"full_text\": \""$icon"\", \"align\": \"right\", \"color\": \"$color\", \"name\": \"mullvadvpn\"}"
