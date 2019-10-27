@@ -1,0 +1,72 @@
+#!/usr/bin/python -u
+# -*- coding: utf-8 -*-
+
+import sys
+import os
+
+from collections import defaultdict
+import dbus
+
+def main():
+    an = int(sys.argv[1]) if len(sys.argv) > 2 else 14
+    tn = int(sys.argv[2]) if len(sys.argv) > 3 else 10
+    status = status_short(an=an, tn=tn)
+
+    output_json = True if '--json' in sys.argv else False
+
+    playback = {"Playing": '▶',
+                "Paused": '▮▮',
+                "Stopped": '■',
+                "Unknown": "",
+               }[playback_status() or 'Unknown']
+
+    if output_json:
+        import json
+        print(json.dumps({'name': 'spotifystatus', 'align': 'right', 'full_text': f"{playback} {status}"}))
+    else:
+        print(f"{playback} {status}")
+
+def get_song():
+    metadata = get_spotify_property("Metadata")
+    if not metadata:
+        return (None, None)
+    artist = metadata['xesam:artist'][0]
+    title = metadata['xesam:title']
+    return (artist, title)
+
+def status_short(an=14, tn=10):
+    artist, title = get_song()
+    if not artist or not title:
+        return "spotify is not running"
+    artist = artist[:an] + (artist[an:] and '...')
+    title = title[:tn] + (title[tn:] and '...')
+    #return "%s - %s".format(artist, title)
+    return f"{artist} - {title}"
+
+def playback_status():
+    return get_spotify_property("PlaybackStatus") 
+
+def get_spotify_property(spotify_property):
+    try:
+        session_bus = dbus.SessionBus()
+        spotify_bus = session_bus.get_object(
+            "org.mpris.MediaPlayer2.spotify",
+            "/org/mpris/MediaPlayer2")
+        spotify_properties = dbus.Interface(
+            spotify_bus,
+            "org.freedesktop.DBus.Properties")
+        return spotify_properties.Get(
+            "org.mpris.MediaPlayer2.Player",
+            spotify_property)
+    except BaseException:
+        return None
+        #sys.stderr.write("Spotify is off\n")
+        #sys.exit(1)
+
+def perform_spotify_action(spotify_command):
+    Popen('dbus-send --print-reply --dest=org.mpris.MediaPlayer2.spotify '
+          '/org/mpris/MediaPlayer2 org.mpris.MediaPlayer2.Player."%s"' %
+          spotify_command, shell=True, stdout=PIPE)
+
+if __name__ == "__main__":
+    main()

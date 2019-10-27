@@ -1,0 +1,6 @@
+#!/bin/sh
+if [ "$(curl -s https://am.i.mullvad.net/json | jq .mullvad_exit_ip)" = "true" ]; then
+    echo "🔒"
+else
+    echo "🔓"
+fi
