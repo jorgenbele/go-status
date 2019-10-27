@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"log"
-	"status1/status"
+	"github.com/jorgenbele/go-status/status"
 )
 
 type CmdGen struct {

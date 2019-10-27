@@ -8,7 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-	"status1/status"
+	"github.com/jorgenbele/go-status/status"
 )
 
 func main() {

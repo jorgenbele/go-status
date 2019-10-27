@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"status1/status"
+	"github.com/jorgenbele/go-status/status"
 )
 
 // LoadAvg reads /proc/loadavg and returns it as a string slice

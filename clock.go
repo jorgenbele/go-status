@@ -2,7 +2,7 @@ package main
 
 import (
 	"time"
-	"status1/status"
+	"github.com/jorgenbele/go-status/status"
 )
 
 type ClockGen struct {
