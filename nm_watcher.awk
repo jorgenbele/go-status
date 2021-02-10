@@ -12,6 +12,8 @@ function reset_state()
     istatus   = "unknown"
     iconn     = "unknown"
     iconns    = ""
+
+    icon     = " "
 }
 
 function initialstate(ifname)
@@ -53,9 +55,9 @@ function updatestate(ifname)
 function printstate()
 {
     if (istatus != "connected")
-        printf "{\"full_text\": \"%s: %s%s\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", iconn, istatus, iconns, "right", "nmcli_con", color;
+        printf "{\"full_text\": \"%s%s: %s%s\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", icon, iconn, istatus, iconns, "right", "nmcli_con", color;
     else
-        printf "{\"full_text\": \"%s\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", iconn, "right", "nmcli_con", color;
+        printf "{\"full_text\": \"%s%s\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", icon, iconn, "right", "nmcli_con", color;
     fflush()
 }
 
