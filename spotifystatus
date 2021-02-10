@@ -30,14 +30,17 @@ def get_song():
     metadata = get_spotify_property("Metadata")
     if not metadata:
         return (None, None)
-    artist = metadata['xesam:artist'][0]
-    title = metadata['xesam:title']
-    return (artist, title)
+    try:
+        artist = metadata['xesam:artist'][0]
+        title = metadata['xesam:title']
+        return (artist, title)
+    except:
+        return (None, None)
 
 def status_short(an=14, tn=10):
     artist, title = get_song()
     if not artist or not title:
-        return "spotify is not running"
+        return ""
     artist = artist[:an] + (artist[an:] and '...')
     title = title[:tn] + (title[tn:] and '...')
     #return "%s - %s".format(artist, title)
