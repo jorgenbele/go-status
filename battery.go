@@ -44,9 +44,9 @@ func init() {
 	batColors = [...]status.Color{
 		status.ColorFromHex("#B82E34"), // very low
 		status.ColorFromHex("#B82E34"), // low
-		status.ColorFromHex("#8A8B8C"), // medium
-		status.ColorFromHex("#8A8B8C"), // near full
-		status.ColorFromHex("#8A8B8C"), // full
+		status.ColorFromHex("#FFFFFF"), // medium
+		status.ColorFromHex("#FFFFFF"), // near full
+		status.ColorFromHex("#FFFFFF"), // full
 	}
 
 	batPrefix = map[BatStatus]string{

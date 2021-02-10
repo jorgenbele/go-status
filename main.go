@@ -48,10 +48,10 @@ func main() {
 			Every:     time.Second * 10,
 		}},
 
-		status.Widget{Gen: CPUGen{
-			Alignment: status.AlignRight,
-			Every:     time.Second * 10,
-		}},
+		// status.Widget{Gen: CPUGen{
+		// 	Alignment: status.AlignRight,
+		// 	Every:     time.Second * 10,
+		// }},
 
 		status.Widget{Gen: ClockGen{
 			Format:    "Mon Jan 2 15:04:05",

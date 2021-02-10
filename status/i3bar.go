@@ -41,7 +41,16 @@ func (w *i3Bar) writeHeader() (n int, err error) {
 func (w *i3Bar) Write(v []Element) (err error) {
 	bytes := make([]byte, 0)
 
-	data, err := json.Marshal(v)
+	colored := make([]Element, 0, len(v))
+    white := ColorFromHex("#FFFFFF")
+    for _, e := range v {
+        if e.Color == nil {
+            e.Color = &white
+        }
+        colored = append(colored, e)
+    }
+
+	data, err := json.Marshal(colored)
 	if err != nil {
 		panic(err)
 	}
