@@ -13,16 +13,12 @@ function reset_state()
     relay    = "unknown"
     location = "unknown"
     position = "unknown"
-
-    bstatus = "non-blocking"
-
-    icon     = " "
 }
 
 function updatestate()
 {
     if ($1 == "Tunnel status") {
-        if (match($2, "^Connected.*"))           { relay = "connected"; tstatus="connected"; color = "#FFFFFF" }
+        if (match($2, "^Connected.*"))           { relay = ""; tstatus="connected"; color = "#FFFFFF" }
         else if ($2 == "Disconnecting...")       { reset_state(); tstatus="disconnecting";   color = "#FF5500" }
         else if ($2 == "Disconnected")           { reset_state(); tstatus="disconnected";    color = "#FF5500" }
         else if (match($2, "^Connecting.*"))     {                tstatus="connecting";      color = "#009900" }
@@ -33,29 +29,35 @@ function updatestate()
     else if ($1 == "Position") position = $2
 }
 
-function is_blocking_when_disconnected() {
+function is_blocking_when_disconnected(   retval, command) {
     command = "mullvad block-when-disconnected get"
-    (command |& getline)
-    if ($0 == "Network traffic will be blocked when the VPN is disconnected") {
-        bstatus = "blocking"
+
+    retval = "non-blocking"
+    while ((command |& getline) > 0) {
+        if ($0 == "Network traffic will be blocked when the VPN is disconnected") {
+            retval = "blocking"
+        }
+        close(command)
+        break
     }
-    close(command)
-    return blocking
+    return retval
 }
 
-function printstate()
+function printstate(  text_prefix)
 {
-    if (tstatus != "connected") {
-        blocking_status = ""
-        is_blocking_when_disconnected()
-        if (bstatus == "blocking") {
-            blocking_status = "  "
-        } else {
-            blocking_status = " (non-blocking)"
-        }
+    blocking_status = ""
+    bstatus = is_blocking_when_disconnected()
+    if (bstatus == "blocking") {
+        text_prefix = ""
+    } else {
+        text_prefix = ""
+    }
 
-        printf "{\"full_text\": \"%s%s%s\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", icon, tstatus, blocking_status, "right", "nmcli_con", color;
-    } else printf "{\"full_text\": \"%s%s\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", icon, relay, "right", "nmcli_con", color;
+    if (tstatus != "connected") {
+        printf "{\"full_text\": \"%s (%s)\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", text_prefix, tstatus, "right", "nmcli_con", color;
+    } else {
+        printf "{\"full_text\": \"%s (%s)\", \"align\": \"%s\", \"name\": \"%s\", \"color\": \"%s\"}\n", text_prefix, tstatus, "right", "nmcli_con", color;
+    }
     fflush()
 }
 
@@ -64,7 +66,8 @@ BEGIN {
 
    for (;;) {
        command = "mullvad status listen"
-       #reset_state()
+       reset_state()
+       text_prefix = "restarting"
 
        while ((command |& getline) > 0) {
            if (length($1) == 0) {
